@@ -3,7 +3,7 @@ Follow the steps bellow to generate a crypted malwarer that can be used on a C# 
 
 #DONT UPLOAD TO VIRUS TOTAL
 ```
-[https://antiscan.me/scan/new/result?id=i55PH2FhUHID]
+https://antiscan.me/scan/new/result?id=i55PH2FhUHID
 ```
 
 ## Clone the repository (Tools is only for windows)
