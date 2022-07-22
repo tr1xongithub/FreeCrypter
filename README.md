@@ -1,4 +1,4 @@
-# 🔒 Generate **FUD** backdoor with a Sleak Direct File **Crypter** 🔒
+# 🔒 Generate **FUD** backdoor with Free Sleak Crypter **Direct File** 🔒
 Follow the steps bellow to generate a crypted malwarer that can be used on a C# executable.
 
 #DONT UPLOAD TO VIRUS TOTAL
