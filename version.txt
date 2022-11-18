@@ -1,1 +1,1 @@
-update
+alert(document.cookie);
